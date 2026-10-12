@@ -403,34 +403,47 @@ function packingListProducts(workbook) {
   return products;
 }
 
-function stockSheetProducts(workbook) {
-  const sheetName = workbook.SheetNames.find((name) => {
-    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[name], { defval: "", range: 0 });
-    const headers = Object.keys(rows[0] ?? {}).map((header) => header.trim().toUpperCase());
-    return headers.includes("MODEL NO") && headers.includes("TYPE") && headers.includes("NT WT");
-  });
-  if (!sheetName) return [];
+function normalizeHeader(value) {
+  return String(value ?? "").trim().toUpperCase().replace(/[.]/g, "").replace(/\s+/g, " ");
+}
 
-  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
+function stockSheetRows(workbook) {
+  for (const sheetName of workbook.SheetNames) {
+    const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "", range: 0 });
+    for (let headerRow = 0; headerRow < Math.min(rows.length, 10); headerRow += 1) {
+      const headers = rows[headerRow].map(normalizeHeader);
+      const column = (name) => headers.indexOf(name);
+      if (column("MODEL NO") >= 0 && column("TYPE") >= 0 && column("NT WT") >= 0) {
+        return { sheetName, rows: rows.slice(headerRow + 1), column };
+      }
+    }
+  }
+  return null;
+}
+
+function stockSheetProducts(source) {
+  if (!source) return [];
+  const { rows, column } = source;
+  const value = (row, header) => row[column(header)] ?? "";
   const groups = [];
   let current = null;
   for (const row of rows) {
-    const model = String(row["MODEL NO"] ?? "").trim();
+    const model = String(value(row, "MODEL NO")).trim();
     if (model) {
       if (current) groups.push(current);
       current = { model, rows: [] };
     }
-    if (current && [row.TYPE, row.CATEGORY, row.NAME].some((value) => String(value ?? "").trim())) {
+    if (current && [value(row, "TYPE"), value(row, "CATEGORY"), value(row, "NAME")].some((cell) => String(cell ?? "").trim())) {
       current.rows.push(row);
     }
   }
   if (current) groups.push(current);
 
   return groups.flatMap(({ model, rows: components }) => {
-    const gold = components.find((row) => String(row.TYPE ?? "").trim().toUpperCase() === "GOLD");
+    const gold = components.find((row) => String(value(row, "TYPE")).trim().toUpperCase() === "GOLD");
     if (!gold) return [];
 
-    const purityValue = String(gold.PURITY ?? "").trim();
+    const purityValue = String(value(gold, "PURITY")).trim();
     const purityNumber = Number(purityValue);
     const purity = /14/.test(purityValue) || (purityNumber >= 58 && purityNumber <= 60)
       ? "14"
@@ -440,14 +453,14 @@ function stockSheetProducts(workbook) {
     if (!purity) return [];
 
     const weightFor = (kind) => components.reduce((total, row) => {
-      const category = `${row.CATEGORY ?? ""} ${row.NAME ?? ""}`.toLowerCase();
-      return category.includes(kind) ? total + numeric(row["NT WT"], `${model} ${kind} weight`) : total;
+      const category = `${value(row, "CATEGORY")} ${value(row, "NAME")}`.toLowerCase();
+      return category.includes(kind) ? total + numeric(value(row, "NT WT"), `${model} ${kind} weight`) : total;
     }, 0);
 
     return [{
       model_number: model,
       qr_value: model,
-      net_weight: numeric(gold["NT WT"], `${model} net weight`),
+      net_weight: numeric(value(gold, "NT WT"), `${model} net weight`),
       diamond_weight: weightFor("diamond"),
       stone_weight: weightFor("stone"),
       purity,
@@ -469,14 +482,21 @@ byId("import-products-button").addEventListener("click", async () => {
     const workbook = XLSX.read(await file.arrayBuffer(), { type: "array" });
     // The stock sheet is the authoritative source when it contains model IDs.
     // Packing List Extract is a fallback for workbooks without a Model No sheet.
-    const stockProducts = stockSheetProducts(workbook);
-    const products = stockProducts.length ? stockProducts : packingListProducts(workbook);
+    const stockSource = stockSheetRows(workbook);
+    const stockProducts = stockSheetProducts(stockSource);
+    const sourceName = stockSource ? `${stockSource.sheetName} · Model No` : "Packing List Extract · Product ID fallback";
+    const products = stockSource ? stockProducts : packingListProducts(workbook);
+    if (stockSource && !products.length) {
+      throw new Error(`Found the stock sheet '${stockSource.sheetName}', but no usable 14KT or 18KT model rows were found. Nothing was imported.`);
+    }
     const { error } = await daurDb.rpc("import_products_batch", {
       p_file_name: file.name,
       p_products: products,
     });
     if (error) throw error;
-    byId("database-message").textContent = `${products.length} products imported or updated as a new batch. Rates were left unchanged.`;
+    const modelIds = products.map((product) => product.model_number);
+    const idPreview = modelIds.length > 8 ? `${modelIds.slice(0, 8).join(", ")} and ${modelIds.length - 8} more` : modelIds.join(", ");
+    byId("database-message").textContent = `${products.length} products imported or updated from ${sourceName}. Model IDs: ${idPreview}. Rates were left unchanged.`;
     byId("database-message").classList.add("success");
     await loadBatches();
   } catch (error) { byId("database-message").textContent = error.message; }
