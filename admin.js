@@ -388,27 +388,68 @@ function productPurity(value) {
 function packingListProducts(workbook) {
   const sheetName = workbook.SheetNames.find((name) => name.trim().toLowerCase() === "packing list extract");
   if (!sheetName) throw new Error("Workbook must contain a 'Packing List Extract' sheet.");
-  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { defval: "" });
+  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName], { header: 1, defval: "" });
+  const headerRow = rows.findIndex((row) => {
+    const headers = row.map(normalizeHeader);
+    return (headers.includes("PROD ID") || headers.includes("PRODUCT ID")) &&
+      (headers.includes("NT WT") || headers.includes("NET WT")) &&
+      (headers.includes("PURITY") || headers.includes("METAL"));
+  });
+  if (headerRow < 0) throw new Error("Packing List Extract needs PROD ID, NT WT, and PURITY columns (or the older Product ID format).");
+
+  const headers = rows[headerRow].map(normalizeHeader);
+  const column = (...names) => headers.findIndex((header) => names.includes(header));
+  const cell = (row, ...names) => {
+    const index = column(...names);
+    return index < 0 ? "" : row[index] ?? "";
+  };
   const products = [];
-  for (const row of rows) {
-    const model = String(row["Product ID"] ?? "").trim();
-    if (!model) continue;
-    const purity = productPurity(row.Metal);
-    if (!purity) continue;
+  let current = null;
+  const saveCurrent = () => {
+    if (!current) return;
     products.push({
-      model_number: model,
-      // The item's printed model ID (for example 26/E/4714) is the scan key.
-      qr_value: model,
-      net_weight: numeric(row["Net Wt"], "Net Wt"),
-      diamond_weight: numeric(row["Total Diam Wt (ct)"], "Total Diam Wt (ct)"),
-      stone_weight: numeric(row["Stone Wt (ct)"], "Stone Wt (ct)"),
-      purity,
-      description: String(row["Product Name"] ?? "").trim(),
-      labor_charge: numeric(row["Labour (₹)"], "Labour (₹)"),
+      model_number: current.model,
+      // Tag IDs are the barcode values in this report; model number remains searchable too.
+      qr_value: current.tag || current.model,
+      net_weight: numeric(current.netWeight, `${current.model} net weight`),
+      diamond_weight: current.diamondWeight,
+      stone_weight: current.stoneWeight,
+      purity: current.purity,
+      description: current.description,
+      labor_charge: current.laborCharge,
       updated_at: new Date().toISOString(),
     });
+  };
+
+  for (const row of rows.slice(headerRow + 1)) {
+    const model = String(cell(row, "PROD ID", "PRODUCT ID")).trim();
+    const purity = productPurity(cell(row, "PURITY") || cell(row, "METAL"));
+    // A populated product ID plus gold purity and weight marks an item row.
+    if (model && purity && cell(row, "NT WT", "NET WT") !== "") {
+      saveCurrent();
+      current = {
+        model,
+        tag: String(cell(row, "TAG")).trim(),
+        netWeight: cell(row, "NT WT", "NET WT"),
+        purity,
+        description: String(cell(row, "ITEM DET", "PRODUCT NAME")).trim(),
+        laborCharge: numeric(cell(row, "LABOUR (₹)", "LABOUR", "LABOUR CHARGE"), `${model} labour`),
+        diamondWeight: numeric(cell(row, "TOTAL DIAM WT (CT)", "DIAMOND WT", "DIAMOND WEIGHT"), `${model} diamond weight`),
+        stoneWeight: numeric(cell(row, "STONE WT (CT)", "STONE WT", "STONE WEIGHT"), `${model} stone weight`),
+      };
+      continue;
+    }
+
+    // In the tag-ID report, diamond and stone weights sit on following component rows.
+    if (current) {
+      const detail = String(cell(row, "ITEM DET", "TYPE", "CATEGORY")).trim().toLowerCase();
+      const weight = cell(row, "NT WT", "NET WT");
+      if (weight !== "" && detail.includes("diamond")) current.diamondWeight += numeric(weight, `${current.model} diamond weight`);
+      else if (weight !== "" && detail.includes("stone")) current.stoneWeight += numeric(weight, `${current.model} stone weight`);
+    }
   }
-  if (!products.length) throw new Error("No 14KT or 18KT product rows were found in Packing List Extract.");
+  saveCurrent();
+  if (!products.length) throw new Error("No usable product rows found. Check that item rows have a product ID, gold purity, and net weight.");
   return products;
 }
 
@@ -487,10 +528,10 @@ byId("import-products-button").addEventListener("click", async () => {
     // Packing List Extract is a fallback for workbooks without a Model No sheet.
     const stockSource = stockSheetRows(workbook);
     const stockProducts = stockSheetProducts(stockSource);
-    const sourceName = stockSource ? `${stockSource.sheetName} · Model No` : "Packing List Extract · Product ID fallback";
+    const sourceName = stockSource ? `${stockSource.sheetName} · Model No` : "Packing List Extract · PROD ID / Product ID";
     const products = stockSource ? stockProducts : packingListProducts(workbook);
     if (stockSource && !products.length) {
-      throw new Error(`Found the stock sheet '${stockSource.sheetName}', but no usable 14KT or 18KT model rows were found. Nothing was imported.`);
+      throw new Error(`Found the stock sheet '${stockSource.sheetName}', but no usable supported-purity model rows were found. Nothing was imported.`);
     }
     const { error } = await daurDb.rpc("import_products_batch", {
       p_file_name: file.name,
@@ -499,7 +540,10 @@ byId("import-products-button").addEventListener("click", async () => {
     if (error) throw error;
     const modelIds = products.map((product) => product.model_number);
     const idPreview = modelIds.length > 8 ? `${modelIds.slice(0, 8).join(", ")} and ${modelIds.length - 8} more` : modelIds.join(", ");
-    byId("database-message").textContent = `${products.length} products imported or updated from ${sourceName}. Model IDs: ${idPreview}. Rates were left unchanged.`;
+    const scanHint = products.some((product) => product.qr_value !== product.model_number)
+      ? " Scan the TAG value; model IDs also work for manual lookup."
+      : " Scan or enter the model ID.";
+    byId("database-message").textContent = `${products.length} products imported or updated from ${sourceName}. Model IDs: ${idPreview}.${scanHint} Rates were left unchanged.`;
     byId("database-message").classList.add("success");
     await loadBatches();
   } catch (error) { byId("database-message").textContent = error.message; }

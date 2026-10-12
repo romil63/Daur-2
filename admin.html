@@ -70,7 +70,7 @@
       </section>
       <section class="card">
         <h2>Product Database</h2>
-        <p class="fixed-note">When the workbook has stock rows with Model No, those one-piece model groups are imported. Otherwise, Packing List Extract is used. Scans use Model No / Product ID. Rates are unchanged.</p>
+        <p class="fixed-note">Stock sheets use Model No. Packing List Extract supports PROD ID / Product ID rows with purity and net weight, plus following diamond and stone rows. When TAG IDs are present, scan the TAG value; model IDs also work for manual lookup. Rates are unchanged.</p>
         <label>Excel workbook<input id="product-file" type="file" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" /></label>
         <button type="button" id="import-products-button">Import or update products</button>
         <p id="database-message" class="message" role="status"></p>
@@ -87,6 +87,6 @@
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="supabase-config.js"></script>
   <script src="supabase-client.js"></script>
-  <script src="admin.js?v=22kt-support-1"></script>
+  <script src="admin.js?v=packing-list-tag-2"></script>
 </body>
 </html>
