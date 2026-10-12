@@ -5,7 +5,7 @@ create table if not exists public.products (
   net_weight numeric(12,3) not null default 0 check (net_weight >= 0),
   diamond_weight numeric(12,3) not null default 0 check (diamond_weight >= 0),
   stone_weight numeric(12,3) not null default 0 check (stone_weight >= 0),
-  purity text not null check (purity in ('14', '18')),
+  purity text not null check (purity in ('14', '18', '22')),
   description text not null default '',
   labor_charge numeric(12,2) not null default 0 check (labor_charge >= 0),
   updated_at timestamptz not null default now()
@@ -16,6 +16,7 @@ create table if not exists public.rate_card (
   gold_rate_24 numeric(12,2) not null default 9370 check (gold_rate_24 > 0),
   gold_14_factor numeric(8,5) not null default 0.60 check (gold_14_factor >= 0),
   gold_18_factor numeric(8,5) not null default 0.76 check (gold_18_factor >= 0),
+  gold_22_factor numeric(8,5) not null default 0.91667 check (gold_22_factor >= 0),
   diamond_rate numeric(12,2) not null default 35000 check (diamond_rate >= 0),
   stone_rate numeric(12,2) not null default 0 check (stone_rate >= 0),
   making_rate numeric(8,5) not null default 0.18 check (making_rate >= 0),

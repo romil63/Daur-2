@@ -1,4 +1,4 @@
-const rates = { goldRate24: 9370, gold14Factor: 0.60, gold18Factor: 0.76, goldRate14: 5622, goldRate18: 7121.2, diamondRate: 35000, stoneRate: 0, makingRate: 0.18, gstRate: 0.03, rhodiumCharge: 1200, certificateCharge: 1500 };
+const rates = { goldRate24: 9370, gold14Factor: 0.60, gold18Factor: 0.76, gold22Factor: 0.91667, goldRate14: 5622, goldRate18: 7121.2, goldRate22: 8589.1979, diamondRate: 35000, stoneRate: 0, makingRate: 0.18, gstRate: 0.03, rhodiumCharge: 1200, certificateCharge: 1500 };
 const estimates = [];
 let currentCalculation = null;
 let currentProductModel = "";
@@ -28,9 +28,11 @@ function setValue(id, value) {
 function showRates() {
   rates.goldRate14 = rates.goldRate24 * rates.gold14Factor;
   rates.goldRate18 = rates.goldRate24 * rates.gold18Factor;
+  rates.goldRate22 = rates.goldRate24 * rates.gold22Factor;
   input("gold-rate-24").value = rates.goldRate24.toFixed(2);
   input("gold-rate-14").value = rates.goldRate14.toFixed(2);
   input("gold-rate-18").value = rates.goldRate18.toFixed(2);
+  input("gold-rate-22").value = rates.goldRate22.toFixed(2);
   input("diamond-rate").value = rates.diamondRate;
   input("stone-rate").value = rates.stoneRate;
   input("rhodium-charge").textContent = money.format(rates.rhodiumCharge);
@@ -118,7 +120,7 @@ async function loadRates() {
     const { data, error } = await window.daurSupabase.from("rate_card").select("*").eq("id", true).single();
     if (error) throw error;
     Object.assign(rates, {
-      goldRate24: Number(data.gold_rate_24), gold14Factor: Number(data.gold_14_factor), gold18Factor: Number(data.gold_18_factor),
+      goldRate24: Number(data.gold_rate_24), gold14Factor: Number(data.gold_14_factor), gold18Factor: Number(data.gold_18_factor), gold22Factor: Number(data.gold_22_factor),
       diamondRate: Number(data.diamond_rate), stoneRate: Number(data.stone_rate), makingRate: Number(data.making_rate),
       gstRate: Number(data.gst_rate), rhodiumCharge: Number(data.rhodium_charge), certificateCharge: Number(data.certificate_charge),
     });
@@ -133,7 +135,7 @@ function calculate() {
   const diamondWeight = numberFrom("diamond-weight");
   const stoneWeight = numberFrom("stone-weight");
   const purity = document.querySelector('input[name="gold-purity"]:checked').value;
-  const goldRate = purity === "18" ? rates.goldRate18 : rates.goldRate14;
+  const goldRate = purity === "22" ? rates.goldRate22 : purity === "18" ? rates.goldRate18 : rates.goldRate14;
   const goldValue = netWeight * goldRate;
   const makingCharges = currentProductLabor || goldValue * rates.makingRate;
   const diamondValue = diamondWeight * rates.diamondRate;
@@ -177,6 +179,7 @@ input("reset-button").addEventListener("click", () => {
   input("gold-rate-24").value = rates.goldRate24;
   input("gold-rate-14").value = rates.goldRate14.toFixed(2);
   input("gold-rate-18").value = rates.goldRate18.toFixed(2);
+  input("gold-rate-22").value = rates.goldRate22.toFixed(2);
   input("diamond-rate").value = rates.diamondRate;
   input("stone-rate").value = rates.stoneRate;
   ["gold-value", "making-charges", "diamond-value", "stone-value", "subtotal", "gst-value", "final-total"].forEach((id) => setValue(id, 0));

@@ -3,6 +3,7 @@ const adminFields = {
   "admin-gold24": ["gold_rate_24", 1],
   "admin-gold14-factor": ["gold_14_factor", 1],
   "admin-gold18-factor": ["gold_18_factor", 1],
+  "admin-gold22-factor": ["gold_22_factor", 1],
   "admin-diamond": ["diamond_rate", 1],
   "admin-stone": ["stone_rate", 1],
   "admin-making": ["making_rate", 0.01],
@@ -375,6 +376,15 @@ function numeric(value, label) {
   return parsed;
 }
 
+function productPurity(value) {
+  const text = String(value ?? "").trim().toUpperCase();
+  const number = Number(text.replace(/[^0-9.]/g, ""));
+  if (/(^|\D)22(\D|$)/.test(text) || (number >= 0.91 && number <= 0.93) || (number >= 91 && number <= 93) || (number >= 910 && number <= 930)) return "22";
+  if (/(^|\D)18(\D|$)/.test(text) || (number >= 74 && number <= 76)) return "18";
+  if (/(^|\D)14(\D|$)/.test(text) || (number >= 58 && number <= 60)) return "14";
+  return "";
+}
+
 function packingListProducts(workbook) {
   const sheetName = workbook.SheetNames.find((name) => name.trim().toLowerCase() === "packing list extract");
   if (!sheetName) throw new Error("Workbook must contain a 'Packing List Extract' sheet.");
@@ -383,8 +393,7 @@ function packingListProducts(workbook) {
   for (const row of rows) {
     const model = String(row["Product ID"] ?? "").trim();
     if (!model) continue;
-    const metal = String(row.Metal ?? "").toUpperCase();
-    const purity = metal.includes("18") ? "18" : metal.includes("14") ? "14" : "";
+    const purity = productPurity(row.Metal);
     if (!purity) continue;
     products.push({
       model_number: model,
@@ -443,13 +452,7 @@ function stockSheetProducts(source) {
     const gold = components.find((row) => String(value(row, "TYPE")).trim().toUpperCase() === "GOLD");
     if (!gold) return [];
 
-    const purityValue = String(value(gold, "PURITY")).trim();
-    const purityNumber = Number(purityValue);
-    const purity = /14/.test(purityValue) || (purityNumber >= 58 && purityNumber <= 60)
-      ? "14"
-      : /18/.test(purityValue) || (purityNumber >= 74 && purityNumber <= 76)
-        ? "18"
-        : "";
+    const purity = productPurity(value(gold, "PURITY"));
     if (!purity) return [];
 
     const weightFor = (kind) => components.reduce((total, row) => {
